@@ -89,6 +89,8 @@ class SettingsScreen(ModalScreen[Config | None]):
                     yield Checkbox("PDF", "pdf" in c.formats, id="pdf")
                     yield Checkbox("RMDOC", "rmdoc" in c.formats, id="rmdoc")
                 yield Checkbox("Keep previous tablet revisions", c.history, id="history")
+                yield Checkbox("Keep documents deleted from tablet", c.retain_deleted, id="retain-deleted")
+                yield Static("When off, sync removes deleted documents, their history, and saved local edits.", classes="hint", markup=False)
                 yield Checkbox("Log unchanged documents", c.verbose, id="verbose")
                 yield Checkbox("Open in Terminal at login (macOS)", c.launch_at_login, id="login")
                 yield Static(
@@ -113,6 +115,7 @@ class SettingsScreen(ModalScreen[Config | None]):
                 formats=[
                     fmt for fmt in ("rmdoc", "pdf") if self.query_one(f"#{fmt}", Checkbox).value
                 ],
+                retain_deleted=self.query_one("#retain-deleted", Checkbox).value,
                 history=self.query_one("#history", Checkbox).value,
                 verbose=self.query_one("#verbose", Checkbox).value,
                 launch_at_login=self.query_one("#login", Checkbox).value,

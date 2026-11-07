@@ -99,6 +99,7 @@ def test_duplicate_names_case_and_unicode_collision(h):
 
 
 def test_missing_retained_and_returning_same_identity(h):
+    h.config.retain_deleted = True
     h.sync()
     path = h.artifact_path()
     before = path.stat().st_mtime_ns
@@ -113,6 +114,7 @@ def test_missing_retained_and_returning_same_identity(h):
 
 
 def test_missing_name_reserved_for_new_document(h):
+    h.config.retain_deleted = True
     h.sync()
     path = h.artifact_path()
     h.tablet.folders[""] = [doc(2)]
@@ -122,6 +124,7 @@ def test_missing_name_reserved_for_new_document(h):
 
 
 def test_folder_rename_retains_missing_descendant_in_last_location(h):
+    h.config.retain_deleted = True
     h.tablet.folders = {
         "": [doc(10, "A", folder=True)],
         uid(10): [doc(parent=uid(10)), doc(2, "Kept", uid(10))],
@@ -419,3 +422,32 @@ def test_remote_revision_not_advanced_by_failed_export(h):
     h.sync()
     current = next(a for a in h.rows("artifacts") if a["format"] == "pdf")
     assert current == original
+
+
+def test_deleted_documents_removed_by_default_with_revisions(h):
+    h.sync()
+    paths = [h.root / a["path"] for a in h.rows("artifacts")]
+    h.artifact_path().write_bytes(b"local edit")
+    h.sync(force=True)
+    revisions = [Path(r["path"]) for r in h.rows("revisions")]
+    assert revisions
+    h.tablet.folders[""] = []
+    assert h.sync(dry_run=True).plan
+    assert all(p.exists() for p in paths + revisions)
+    assert h.sync().complete
+    assert all(not p.exists() for p in paths + revisions)
+    assert not h.rows("artifacts")
+    assert not h.rows("revisions")
+    assert not h.rows("nodes")
+
+
+def test_disabling_retention_cleans_previously_missing(h):
+    h.config.retain_deleted = True
+    h.sync()
+    path = h.artifact_path()
+    h.tablet.folders[""] = []
+    h.sync()
+    assert path.exists()
+    h.config.retain_deleted = False
+    h.sync()
+    assert not path.exists()

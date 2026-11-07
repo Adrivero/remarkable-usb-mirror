@@ -34,6 +34,7 @@ class Config:
     poll_seconds: int = 10
     refresh_days: float = 7
     formats: list[str] = field(default_factory=lambda: ["rmdoc", "pdf"])
+    retain_deleted: bool = False
     history: bool = True
     verbose: bool = False
     launch_at_login: bool = False

@@ -2,7 +2,7 @@
 
 **Your reMarkable notebooks, archived over USB.**
 
-Keep local PDF and RMDOC copies with a keyboard-driven terminal app. Sync automatically when your tablet connects, follow live progress, and preserve previous revisions and detected local edits. The app only reads from the tablet and retains local copies when documents disappear from the device.
+Keep local PDF and RMDOC copies with a keyboard-driven terminal app. Sync automatically when your tablet connects, follow live progress, and preserve previous revisions and detected local edits. The app only reads from the tablet and, by default, removes local copies when a complete scan confirms documents have disappeared from the device.
 
 ![reMarkable USB Mirror demo: connection, document export progress, completed archive, and settings](docs/demo.gif)
 
@@ -57,12 +57,14 @@ Keep the terminal open for automatic syncing. The app syncs when the tablet conn
 
 Settings include the archive folder, device address, intervals, export formats, and revision history. On macOS, launch at login opens a Terminal session. If you move this project, toggle that setting off and on to update the script path.
 
+In Settings, enable **Keep documents deleted from tablet** to retain missing documents. It is off by default, including for existing configurations. When off, the next successful scan removes tracked exports (including local edits), revision history, and saved conflict copies for missing documents. Failed scans do not trigger deletion. Copies in previously used archive directories are not tracked or removed.
+
 ## Commands
 
 ```sh
 uv run remarkable-usb-mirror.py status                 # Connectivity and archive statistics
 uv run remarkable-usb-mirror.py scan                   # List tablet documents
-uv run remarkable-usb-mirror.py sync --dry-run         # Preview downloads
+uv run remarkable-usb-mirror.py sync --dry-run         # Preview downloads and deletions
 uv run remarkable-usb-mirror.py sync                   # Sync once and exit
 uv run remarkable-usb-mirror.py sync --force-refresh   # Download all selected formats again
 uv run remarkable-usb-mirror.py verify                 # Check hashes and preserve local edits

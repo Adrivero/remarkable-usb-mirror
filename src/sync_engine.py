@@ -104,6 +104,39 @@ class SyncEngine:
                 break
             directory = directory.parent
 
+    def _remove_missing(self, docs, nodes, artifacts, dry_run: bool, result) -> None:
+        present = {doc.id for doc in docs}
+        missing = {node["id"] for node in nodes if node["id"] not in present}
+        revisions = self.db.rows("revisions")
+        for ident in missing:
+            if self.cancel.is_set():
+                raise Cancelled("Synchronization stopped safely")
+            files = [safe_path(self.root, a["path"]) for a in artifacts if a["doc_id"] == ident]
+            for revision in revisions:
+                if revision["doc_id"] == ident:
+                    try:
+                        relative = Path(revision["path"]).relative_to(self.data_dir)
+                    except ValueError as exc:
+                        raise MirrorError("Revision path is outside application data") from exc
+                    if relative.parts[0] not in ("history", "conflicts"):
+                        raise MirrorError("Invalid revision location")
+                    files.append(safe_path(self.data_dir, str(relative)))
+            if dry_run:
+                result.plan.append(dict(id=ident, action="delete", paths=[str(p) for p in files]))
+                continue
+            # Keep tracking until every unlink succeeds, so interrupted cleanup is retryable.
+            for path in files:
+                path.unlink(missing_ok=True)
+                if path.parent.exists():
+                    fsync_dir(path.parent)
+                if path.is_relative_to(self.root):
+                    self._prune(path.parent)
+            with self.db.connection:
+                for table in ("artifacts", "revisions", "attempts"):
+                    self.db.connection.execute(f"DELETE FROM {table} WHERE doc_id=?", (ident,))
+                self.db.connection.execute("DELETE FROM nodes WHERE id=?", (ident,))
+            self.events.emit("info", f"Removed document missing from tablet: {ident}")
+
     def _recover(self) -> None:
         pending = self.db.rows("journal")
         for row in pending:
@@ -190,12 +223,16 @@ class SyncEngine:
                 artifact_formats: dict[str, list[str]] = {}
                 for artifact in artifacts:
                     artifact_formats.setdefault(artifact["doc_id"], []).append(artifact["format"])
+                if not self.config.retain_deleted:
+                    self._remove_missing(docs, nodes, artifacts, dry_run, result)
+                    if not dry_run:
+                        artifacts = self.db.rows("artifacts")
                 paths = self._paths(docs, nodes, artifacts)
                 now = time.time()
                 result.total = sum(not d.folder for d in docs)
                 if not dry_run:
                     result.missing = self.db.record_scan(docs, paths, now)
-                    if result.missing:
+                    if result.missing and self.config.retain_deleted:
                         self.events.emit(
                             "info", f"Retaining {result.missing} documents missing from tablet"
                         )
