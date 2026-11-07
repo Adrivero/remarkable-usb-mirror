@@ -28,12 +28,13 @@ def device_url(address: str) -> str:
 
 @dataclass
 class Config:
-    mirror_dir: str = str(Path.home() / "Documents/reMarkable Mirror")
+    mirror_dir: str = str(Path.home() / "Documents/reMarkable_Mirror")
     address: str = "10.11.99.1"
     interval_seconds: int = 900
     poll_seconds: int = 10
     refresh_days: float = 7
     formats: list[str] = field(default_factory=lambda: ["rmdoc", "pdf"])
+    two_way_sync: bool = True
     retain_deleted: bool = False
     history: bool = True
     verbose: bool = False

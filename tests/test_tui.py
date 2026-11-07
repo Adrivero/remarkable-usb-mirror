@@ -47,6 +47,8 @@ async def test_settings_validate_and_queue_without_blocking(h):
     async with app.run_test(size=(110, 45)) as pilot:
         await pilot.press("p")
         screen = app.screen
+        assert screen.query_one("#two-way-sync", Checkbox).value
+        screen.query_one("#two-way-sync", Checkbox).value = False
         screen.query_one("#pdf", Checkbox).value = False
         screen.query_one("#rmdoc", Checkbox).value = False
         screen.save()
@@ -60,6 +62,7 @@ async def test_settings_validate_and_queue_without_blocking(h):
         screen.save()
         await pilot.pause()
         pending = app.service.pending_config
+        assert not pending.two_way_sync
         assert pending.formats == ["pdf"]
         assert pending.interval_seconds == 420 and pending.refresh_days == 3
         assert app.settings_pending

@@ -2,7 +2,7 @@
 
 **Your reMarkable notebooks, archived over USB.**
 
-Keep local PDF and RMDOC copies with a keyboard-driven terminal app. Sync automatically when your tablet connects, follow live progress, and preserve previous revisions and detected local edits. The app only reads from the tablet and, by default, removes local copies when a complete scan confirms documents have disappeared from the device.
+Keep local PDF and RMDOC copies with a keyboard-driven terminal app. Sync automatically when your tablet connects, follow live progress, and preserve previous revisions and detected local edits. New local PDF and EPUB files are uploaded to the tablet by default. The app removes tracked local copies when a complete scan confirms documents have disappeared from the device.
 
 ![reMarkable USB Mirror demo: connection, document export progress, completed archive, and settings](docs/demo.gif)
 
@@ -10,6 +10,7 @@ Keep local PDF and RMDOC copies with a keyboard-driven terminal app. Sync automa
 
 - **USB workflow:** connect your tablet and enable its USB web interface.
 - **Automatic archiving:** sync on connection and every 15 minutes by default.
+- **Two-way sync:** send new local PDFs and EPUBs to the tablet; enabled by default in Settings.
 - **PDF + RMDOC:** keep readable exports alongside native document archives.
 - **Visible progress:** watch transfers, inspect saved logs, and adjust settings from the terminal.
 
@@ -59,12 +60,22 @@ Settings include the archive folder, device address, intervals, export formats, 
 
 In Settings, enable **Keep documents deleted from tablet** to retain missing documents. It is off by default, including for existing configurations. When off, the next successful scan removes tracked exports (including local edits), revision history, and saved conflict copies for missing documents. Failed scans do not trigger deletion. Copies in previously used archive directories are not tracked or removed.
 
+## Uploading local files
+
+**Two-way sync: upload new local files** is on by default, including for existing settings. Drop a PDF or EPUB anywhere in the mirror folder and press `s`, or wait for the next scheduled sync. Switch this option off in Settings (or set `two_way_sync` to `false` in `config.json`) for download-only operation.
+
+Uploads create new tablet documents. Existing tracked exports and previously uploaded paths are excluded; local edits and deletions are not sent to the tablet. Hidden files, symlinks, and other formats are ignored. Your original upload stays in place. On a later sync, the imported tablet document gets its own tracked exports; a suffix avoids overwriting the original if names collide.
+
+The [USB upload endpoint](https://github.com/Scratchydisk/remarkable-rm/blob/main/docs/remarkable-usb-api.md) chooses the destination folder on the tablet; local subfolders are not recreated. PDF and EPUB uploads use the USB web interface without cloud or SSH access.
+
+Upload intent is saved before sending. If the app stops or loses the response during an upload, it reports an uncertain outcome on later syncs rather than risking a duplicate. Check the tablet: if the document is present, move the original source outside the mirror; if it is absent, rename the local file to retry. Invalid or still-changing local files can be fixed in place and retried on the next sync. `sync --dry-run` previews uploads without sending them.
+
 ## Commands
 
 ```sh
 uv run remarkable-usb-mirror.py status                 # Connectivity and archive statistics
 uv run remarkable-usb-mirror.py scan                   # List tablet documents
-uv run remarkable-usb-mirror.py sync --dry-run         # Preview downloads and deletions
+uv run remarkable-usb-mirror.py sync --dry-run         # Preview downloads, uploads, and deletions
 uv run remarkable-usb-mirror.py sync                   # Sync once and exit
 uv run remarkable-usb-mirror.py sync --force-refresh   # Download all selected formats again
 uv run remarkable-usb-mirror.py verify                 # Check hashes and preserve local edits
@@ -75,7 +86,7 @@ Commands print JSON results. `status` exits nonzero if disconnected, `sync` if i
 
 ## Files and settings
 
-- **Documents:** `~/Documents/reMarkable Mirror/`
+- **Documents:** `~/Documents/reMarkable_Mirror/`
 - **Settings and state:** `~/Library/Application Support/reMarkable USB Mirror/`
 - **Inside the state folder:** `config.json`, `state.sqlite3`, `history/`, `conflicts/`, and `logs/` as needed.
 

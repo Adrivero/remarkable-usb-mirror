@@ -16,7 +16,7 @@ from .usb_client import USBClient
 
 
 def parser():
-    result = argparse.ArgumentParser(description="Read-only reMarkable USB archiving")
+    result = argparse.ArgumentParser(description="reMarkable USB mirroring")
     result.add_argument("--data-dir", type=Path, default=DEFAULT_DATA)
     sub = result.add_subparsers(dest="command")
     sub.add_parser("tui", help="Open the interactive terminal interface (default)")

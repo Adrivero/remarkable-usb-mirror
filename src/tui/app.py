@@ -190,7 +190,7 @@ class MirrorApp(App[int]):
                 self.counts.update("New: 0   Updated: 0   Unchanged: 0   Errors: 0")
             else:
                 self.transfer_progress.display = False
-        elif event.kind in ("scan", "pdf", "down"):
+        elif event.kind in ("scan", "pdf", "down", "up"):
             self.operation.update(event.message)
             self.byte_label.update(
                 "Generating PDF…" if event.kind == "pdf" else "Waiting for data…"

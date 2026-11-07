@@ -71,7 +71,7 @@ class SettingsScreen(ModalScreen[Config | None]):
             with VerticalScroll():
                 yield Label("Archive directory")
                 yield Input(
-                    c.mirror_dir, id="directory", placeholder="~/Documents/reMarkable Mirror"
+                    c.mirror_dir, id="directory", placeholder="~/Documents/reMarkable_Mirror"
                 )
                 yield Static(
                     "Changing directories copies the archive and keeps the originals.",
@@ -88,6 +88,8 @@ class SettingsScreen(ModalScreen[Config | None]):
                 with Horizontal(classes="formats"):
                     yield Checkbox("PDF", "pdf" in c.formats, id="pdf")
                     yield Checkbox("RMDOC", "rmdoc" in c.formats, id="rmdoc")
+                yield Checkbox("Two-way sync: upload new local files", c.two_way_sync, id="two-way-sync")
+                yield Static("New PDF and EPUB files upload on sync. The tablet chooses their folder.", classes="hint", markup=False)
                 yield Checkbox("Keep previous tablet revisions", c.history, id="history")
                 yield Checkbox("Keep documents deleted from tablet", c.retain_deleted, id="retain-deleted")
                 yield Static("When off, sync removes deleted documents, their history, and saved local edits.", classes="hint", markup=False)
@@ -115,6 +117,7 @@ class SettingsScreen(ModalScreen[Config | None]):
                 formats=[
                     fmt for fmt in ("rmdoc", "pdf") if self.query_one(f"#{fmt}", Checkbox).value
                 ],
+                two_way_sync=self.query_one("#two-way-sync", Checkbox).value,
                 retain_deleted=self.query_one("#retain-deleted", Checkbox).value,
                 history=self.query_one("#history", Checkbox).value,
                 verbose=self.query_one("#verbose", Checkbox).value,

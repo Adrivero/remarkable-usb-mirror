@@ -9,11 +9,11 @@ import httpx
 
 from .config import Config, device_url
 from .events import Events
-from .models import Cancelled, MirrorError, UnsupportedFormat
+from .models import Cancelled, MirrorError, UnsupportedFormat, UploadNotSent
 
 
 class USBClient:
-    """Read-only HTTP transport. No redirects, environment proxies, or cloud API."""
+    """USB HTTP transport. No redirects, environment proxies, or cloud API."""
 
     def __init__(
         self,
@@ -95,6 +95,24 @@ class USBClient:
             )
         except (httpx.HTTPError, MirrorError, ValueError) as exc:
             return "error", f"Unexpected USB API response: {exc}"
+
+    def upload(self, source: Path, name: str) -> None:
+        """POST once: retrying an uncertain response can create duplicate documents."""
+        self.check_cancelled()
+        mime = {".pdf": "application/pdf", ".epub": "application/epub+zip"}
+        content_type = mime[Path(name).suffix.lower()]
+        self.events.emit("up", f"Uploading {name}")
+        try:
+            with source.open("rb") as stream:
+                response = self.http.post("/upload", files={"file": (name, stream, content_type)})
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as exc:
+            raise UploadNotSent(f"Upload could not connect: {exc}") from exc
+        if 400 <= response.status_code < 500 and response.status_code != 408:
+            raise UploadNotSent(f"Upload rejected: HTTP {response.status_code}")
+        if not 200 <= response.status_code < 300:
+            raise MirrorError(f"Upload returned HTTP {response.status_code}")
+        if "text/html" in response.headers.get("content-type", "").lower():
+            raise MirrorError("Upload returned HTML instead of confirmation")
 
     def download(self, doc_id: str, fmt: str, target: Path, name: str) -> None:
         from .downloader import validate_artifact

@@ -14,6 +14,10 @@ class UnsupportedFormat(MirrorError):
     pass
 
 
+class UploadNotSent(MirrorError):
+    """The upload was rejected or never connected; a later retry is safe."""
+
+
 class Cancelled(MirrorError):
     pass
 
@@ -70,6 +74,7 @@ class SyncResult:
     missing: int = 0
     errors: int = 0
     unsupported: int = 0
+    uploaded: int = 0
     archived: int = 0
     complete: bool = False
     plan: list[dict] = field(default_factory=list)

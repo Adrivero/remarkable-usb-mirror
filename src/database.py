@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS attempts (
     doc_id TEXT NOT NULL, format TEXT NOT NULL, token TEXT NOT NULL, tried REAL NOT NULL,
     status TEXT NOT NULL, message TEXT NOT NULL, PRIMARY KEY(doc_id, format)
 );
+CREATE TABLE IF NOT EXISTS uploads (
+    path TEXT PRIMARY KEY, hash TEXT NOT NULL, status TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS journal (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS revisions (
     doc_id TEXT NOT NULL, format TEXT NOT NULL, path TEXT PRIMARY KEY,
@@ -46,9 +49,19 @@ class Database:
         self.connection.close()
 
     def rows(self, table: str) -> list[dict]:
-        if table not in ("nodes", "artifacts", "attempts", "journal", "revisions"):
+        if table not in ("nodes", "artifacts", "attempts", "journal", "revisions", "uploads"):
             raise ValueError("Unknown table")
         return [dict(row) for row in self.connection.execute(f"SELECT * FROM {table}")]
+
+    def upload_state(self, path: str, digest: str, status: str) -> None:
+        with self.connection:
+            self.connection.execute(
+                "INSERT OR REPLACE INTO uploads VALUES (?,?,?)", (path, digest, status)
+            )
+
+    def forget_upload(self, path: str) -> None:
+        with self.connection:
+            self.connection.execute("DELETE FROM uploads WHERE path=?", (path,))
 
     def meta(self, key: str) -> str | None:
         row = self.connection.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()

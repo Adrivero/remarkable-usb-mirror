@@ -36,7 +36,7 @@ async def render() -> None:
             await pilot.pause()
             app.query_one(HeaderClock).display = False
             # Display a portable example path without touching the user's archive.
-            app.config.mirror_dir = "~/Documents/reMarkable Mirror"
+            app.config.mirror_dir = "~/Documents/reMarkable_Mirror"
             app.archive.update(app.config.mirror_dir)
 
             async def capture(milliseconds: int = 800) -> None:

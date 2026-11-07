@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+import zipfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -22,7 +23,7 @@ from .filesystem import (
     sha256,
     stage_path,
 )
-from .models import Cancelled, MirrorError, SyncResult, UnsupportedFormat
+from .models import Cancelled, MirrorError, SyncResult, UnsupportedFormat, UploadNotSent
 from .scanner import scan
 from .usb_client import USBClient
 
@@ -194,6 +195,80 @@ class SyncEngine:
                 del remaining[doc.id]
         return paths
 
+    def _upload_new(self, excluded: set[str], dry_run: bool, result: SyncResult) -> None:
+        if not self.config.two_way_sync:
+            return
+        from .downloader import validate_artifact
+
+        tracked = {name_key(p) for p in excluded}
+        uploads = {name_key(row["path"]): row for row in self.db.rows("uploads")}
+        # os.walk never descends into symlinked directories. Ignore hidden files,
+        # including our staging files and files still being copied by other apps.
+        for directory, folders, files in os.walk(self.root, followlinks=False):
+            folders[:] = sorted(
+                f for f in folders
+                if not f.startswith(".") and not (Path(directory) / f).is_symlink()
+            )
+            for name in sorted(files):
+                path = Path(directory) / name
+                relative = str(path.relative_to(self.root))
+                if name.startswith(".") or path.suffix.lower() not in (".pdf", ".epub"):
+                    continue
+                if path.is_symlink() or not path.is_file() or name_key(relative) in tracked:
+                    continue
+                previous = uploads.get(name_key(relative))
+                if previous and previous["status"] == "sent":
+                    continue  # Local edits are not new documents.
+                if self.cancel.is_set():
+                    raise Cancelled("Synchronization stopped safely")
+                if previous:
+                    result.errors += 1
+                    self.events.emit(
+                        "error", f"Upload outcome uncertain for {relative}; check the tablet. "
+                        "If absent, rename the local file to retry; if present, move the source "
+                        "outside the mirror. Automatic retry is disabled to avoid duplicates.",
+                    )
+                    continue
+                result.plan.append(dict(action="upload", path=relative))
+                if dry_run:
+                    continue
+                temp = stage_path(self.data_dir)
+                try:
+                    source = safe_path(self.root, relative)
+                    before = source.stat()
+                    durable_copy(source, temp)
+                    after = source.stat()
+                    if (before.st_size, before.st_mtime_ns, before.st_ino) != (
+                        after.st_size, after.st_mtime_ns, after.st_ino
+                    ):
+                        raise MirrorError("File changed while being copied; retry next sync")
+                    if path.suffix.lower() == ".pdf":
+                        validate_artifact(temp, "pdf")
+                    else:
+                        with zipfile.ZipFile(temp) as archive:
+                            if archive.read("mimetype") != b"application/epub+zip":
+                                raise MirrorError("Invalid EPUB mimetype")
+                            if "META-INF/container.xml" not in archive.namelist():
+                                raise MirrorError("Invalid EPUB container")
+                    digest = sha256(temp)
+                    if self.cancel.is_set():
+                        raise Cancelled("Synchronization stopped safely")
+                    # Commit intent before POST, including across process termination.
+                    self.db.upload_state(relative, digest, "pending")
+                    self.client.upload(temp, name)
+                    self.db.upload_state(relative, digest, "sent")
+                    result.uploaded += 1
+                    self.events.emit("ok", f"Uploaded {relative}")
+                except Cancelled:
+                    raise
+                except Exception as exc:
+                    if isinstance(exc, UploadNotSent):
+                        self.db.forget_upload(relative)
+                    result.errors += 1
+                    self.events.emit("error", f"Could not upload {relative}: {exc}")
+                finally:
+                    temp.unlink(missing_ok=True)
+
     def run(self, *, force: bool = False, dry_run: bool = False) -> SyncResult:
         result = SyncResult()
         try:
@@ -219,6 +294,7 @@ class SyncEngine:
                     raise MirrorError("Pending recovery: run a normal sync before a dry run")
                 docs = scan(self.client, self.events)
                 nodes, artifacts = self.db.rows("nodes"), self.db.rows("artifacts")
+                upload_excluded = {a["path"] for a in artifacts}
                 old_nodes = {row["id"]: row for row in nodes}
                 artifact_formats: dict[str, list[str]] = {}
                 for artifact in artifacts:
@@ -355,6 +431,8 @@ class SyncEngine:
                         unchanged=result.unchanged,
                         errors=result.errors,
                     )
+                upload_excluded.update(a["path"] for a in self.db.rows("artifacts"))
+                self._upload_new(upload_excluded, dry_run, result)
                 if not dry_run:
                     for node in sorted(nodes, key=lambda n: len(n["path"]), reverse=True):
                         if node["folder"] and paths.get(node["id"]) != node["path"]:
@@ -365,7 +443,7 @@ class SyncEngine:
                 result.complete = result.errors == 0
                 self.events.emit(
                     "done",
-                    f"{'Dry run' if dry_run else 'Sync'} complete: {result.new} new, {result.updated} updated, {result.unchanged} unchanged, {result.errors} errors, {result.unsupported} unavailable formats",
+                    f"{'Dry run' if dry_run else 'Sync'} complete: {result.new} new, {result.updated} updated, {result.unchanged} unchanged, {result.uploaded} uploaded, {result.errors} errors, {result.unsupported} unavailable formats",
                     **{k: v for k, v in vars(result).items() if k != "plan"},
                 )
                 return result
