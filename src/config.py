@@ -35,7 +35,7 @@ class Config:
     refresh_days: float = 7
     formats: list[str] = field(default_factory=lambda: ["rmdoc", "pdf"])
     two_way_sync: bool = True
-    retain_deleted: bool = False
+    retain_deleted: bool = True
     history: bool = True
     verbose: bool = False
     launch_at_login: bool = False

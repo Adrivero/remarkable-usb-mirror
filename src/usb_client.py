@@ -99,7 +99,11 @@ class USBClient:
     def upload(self, source: Path, name: str) -> None:
         """POST once: retrying an uncertain response can create duplicate documents."""
         self.check_cancelled()
-        mime = {".pdf": "application/pdf", ".epub": "application/epub+zip"}
+        mime = {
+            ".pdf": "application/pdf",
+            ".epub": "application/epub+zip",
+            ".rmdoc": "application/octet-stream",
+        }
         content_type = mime[Path(name).suffix.lower()]
         self.events.emit("up", f"Uploading {name}")
         try:

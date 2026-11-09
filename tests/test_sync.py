@@ -424,7 +424,8 @@ def test_remote_revision_not_advanced_by_failed_export(h):
     assert current == original
 
 
-def test_deleted_documents_removed_by_default_with_revisions(h):
+def test_deleted_documents_removed_only_when_retention_disabled(h):
+    h.config.retain_deleted = False
     h.sync()
     paths = [h.root / a["path"] for a in h.rows("artifacts")]
     h.artifact_path().write_bytes(b"local edit")
@@ -451,3 +452,81 @@ def test_disabling_retention_cleans_previously_missing(h):
     h.config.retain_deleted = False
     h.sync()
     assert not path.exists()
+
+
+def test_default_retention_preserves_missing_documents_edits_and_history(h):
+    assert h.config.retain_deleted and h.config.history
+    h.sync()
+    h.tablet.version = "updated"
+    h.tablet.folders[""][0]["ModifiedClient"] = "updated"
+    h.sync()
+    h.artifact_path().write_bytes(b"local edits")
+    h.engine().verify()
+    paths = [h.root / a["path"] for a in h.rows("artifacts")]
+    paths += [Path(r["path"]) for r in h.rows("revisions")]
+    assert h.rows("revisions")
+    before = {p: p.read_bytes() for p in paths}
+    h.tablet.folders[""] = []
+    assert h.sync().complete
+    assert h.sync().complete
+    assert all(p.read_bytes() == content for p, content in before.items())
+
+
+def test_history_expires_after_30_days_without_removing_conflicts_or_current(h, monkeypatch):
+    import src.sync_engine as sync_engine
+
+    now = 2_000_000_000
+    monkeypatch.setattr(sync_engine.time, "time", lambda: now)
+    h.sync()
+    current = h.artifact_path()
+    original = current.read_bytes()
+    db = Database(h.data)
+    paths = {}
+    try:
+        for name, kind, age in [
+            ("expired", "history", 31 * 86400),
+            ("boundary", "history", 30 * 86400),
+            ("recent", "history", 86400),
+            ("edited", "conflicts", 90 * 86400),
+        ]:
+            path = h.data / kind / uid(1) / (name + ".pdf")
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(pdf(name))
+            db.revision(uid(1), "pdf", path, sha256(path), now - age, kind)
+            paths[name] = path
+    finally:
+        db.close()
+    h.config.history = False
+    preview = h.sync(dry_run=True)
+    assert {"action": "prune_history", "path": str(paths["expired"])} in preview.plan
+    assert all(p.exists() for p in paths.values())
+    assert len(h.rows("revisions")) == 4
+    assert h.sync().complete
+    assert not paths["expired"].exists()
+    assert all(paths[n].exists() for n in ("boundary", "recent", "edited"))
+    assert len(h.rows("revisions")) == 3
+    assert current.read_bytes() == original
+
+
+def test_history_cleanup_keeps_tracking_when_unlink_fails(h, monkeypatch):
+    h.sync()
+    path = h.data / "history" / uid(1) / "expired.pdf"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(pdf())
+    db = Database(h.data)
+    db.revision(uid(1), "pdf", path, sha256(path), 0, "history")
+    db.close()
+    original = Path.unlink
+
+    def fail_expired(target, *args, **kwargs):
+        if target == path:
+            raise OSError("Deletion failed")
+        return original(target, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_expired)
+    with pytest.raises(OSError, match="Deletion failed"):
+        h.sync()
+    assert path.exists() and len(h.rows("revisions")) == 1
+    monkeypatch.setattr(Path, "unlink", original)
+    assert h.sync().complete
+    assert not path.exists() and not h.rows("revisions")

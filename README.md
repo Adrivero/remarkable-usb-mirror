@@ -2,7 +2,7 @@
 
 **Your reMarkable notebooks, archived over USB.**
 
-Keep local PDF and RMDOC copies with a keyboard-driven terminal app. Sync automatically when your tablet connects, follow live progress, and preserve previous revisions and detected local edits. New local PDF and EPUB files are uploaded to the tablet by default. The app removes tracked local copies when a complete scan confirms documents have disappeared from the device.
+Keep local PDF and RMDOC copies with a keyboard-driven terminal app. Sync automatically when your tablet connects, follow live progress, and preserve previous revisions and detected local edits. New local PDF, EPUB, and RMDOC files are uploaded to the tablet by default. By default, local copies remain archived when documents disappear from the tablet.
 
 ![reMarkable USB Mirror demo: connection, document export progress, completed archive, and settings](docs/demo.gif)
 
@@ -10,7 +10,7 @@ Keep local PDF and RMDOC copies with a keyboard-driven terminal app. Sync automa
 
 - **USB workflow:** connect your tablet and enable its USB web interface.
 - **Automatic archiving:** sync on connection and every 15 minutes by default.
-- **Two-way sync:** send new local PDFs and EPUBs to the tablet; enabled by default in Settings.
+- **Two-way sync:** send new local PDFs, EPUBs, and native RMDOC notebooks to the tablet; enabled by default in Settings.
 - **PDF + RMDOC:** keep readable exports alongside native document archives.
 - **Visible progress:** watch transfers, inspect saved logs, and adjust settings from the terminal.
 
@@ -58,17 +58,21 @@ Keep the terminal open for automatic syncing. The app syncs when the tablet conn
 
 Settings include the archive folder, device address, intervals, export formats, and revision history. On macOS, launch at login opens a Terminal session. If you move this project, toggle that setting off and on to update the script path.
 
-In Settings, enable **Keep documents deleted from tablet** to retain missing documents. It is off by default, including for existing configurations. When off, the next successful scan removes tracked exports (including local edits), revision history, and saved conflict copies for missing documents. Failed scans do not trigger deletion. Copies in previously used archive directories are not tracked or removed.
+In Settings, **Keep documents deleted from tablet** is enabled by default for new configurations and configurations without this setting. Existing explicit settings are preserved. Keep this enabled, along with **Keep previous tablet revisions**, to preserve missing documents and earlier versions. When off, the next successful scan removes tracked exports (including local edits), revision history, and saved conflict copies for missing documents. Failed scans do not trigger deletion. Copies in previously used archive directories are not tracked or removed.
 
 ## Uploading local files
 
-**Two-way sync: upload new local files** is on by default, including for existing settings. Drop a PDF or EPUB anywhere in the mirror folder and press `s`, or wait for the next scheduled sync. Switch this option off in Settings (or set `two_way_sync` to `false` in `config.json`) for download-only operation.
+**Two-way sync: upload new local files** is on by default, including for existing settings. Drop a PDF, EPUB, or RMDOC anywhere in the mirror folder and press `s`, or wait for the next scheduled sync. Switch this option off in Settings (or set `two_way_sync` to `false` in `config.json`) for download-only operation.
+
+Use `.rmdoc` to restore an editable native notebook. Files must have their format extension; for example, rename an extensionless native archive `My notes` to `My notes.rmdoc`. When a PDF and RMDOC share a name in the same folder, only the RMDOC is uploaded, preserving the editable notebook without creating a second PDF document. If that archive is invalid or its upload is uncertain, fix it first; the PDF is not uploaded as a fallback. Rename one file if you intend to import both separately.
 
 Uploads create new tablet documents. Existing tracked exports and previously uploaded paths are excluded; local edits and deletions are not sent to the tablet. Hidden files, symlinks, and other formats are ignored. Your original upload stays in place. On a later sync, the imported tablet document gets its own tracked exports; a suffix avoids overwriting the original if names collide.
 
-The [USB upload endpoint](https://github.com/Scratchydisk/remarkable-rm/blob/main/docs/remarkable-usb-api.md) chooses the destination folder on the tablet; local subfolders are not recreated. PDF and EPUB uploads use the USB web interface without cloud or SSH access.
+The [USB upload endpoint](https://github.com/Scratchydisk/remarkable-rm/blob/main/docs/remarkable-usb-api.md) chooses the destination folder on the tablet; local subfolders are not recreated. PDF, EPUB, and RMDOC uploads use the USB web interface without cloud or SSH access. Native imports may retain the document name stored inside the archive.
 
 Upload intent is saved before sending. If the app stops or loses the response during an upload, it reports an uncertain outcome on later syncs rather than risking a duplicate. Check the tablet: if the document is present, move the original source outside the mirror; if it is absent, rename the local file to retry. Invalid or still-changing local files can be fixed in place and retried on the next sync. `sync --dry-run` previews uploads without sending them.
+
+History copies older than 30 days are automatically deleted after a successful sync, based on when they were first saved to history. This cleanup runs even if saving new history is disabled. Current documents and saved local edits in `conflicts/` are excluded from age-based cleanup. `sync --dry-run` previews expired history without deleting it.
 
 ## Commands
 

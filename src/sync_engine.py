@@ -138,6 +138,31 @@ class SyncEngine:
                 self.db.connection.execute("DELETE FROM nodes WHERE id=?", (ident,))
             self.events.emit("info", f"Removed document missing from tablet: {ident}")
 
+    def _prune_history(self, now: float, dry_run: bool, result: SyncResult) -> None:
+        cutoff = now - 30 * 24 * 60 * 60
+        for revision in self.db.rows("revisions"):
+            if revision["kind"] != "history" or revision["created"] >= cutoff:
+                continue
+            if self.cancel.is_set():
+                raise Cancelled("Synchronization stopped safely")
+            try:
+                relative = Path(revision["path"]).relative_to(self.data_dir)
+            except ValueError as exc:
+                raise MirrorError("History path is outside application data") from exc
+            if len(relative.parts) < 2 or relative.parts[0] != "history":
+                raise MirrorError("Invalid history location")
+            path = safe_path(self.data_dir, str(relative))
+            if dry_run:
+                result.plan.append(dict(action="prune_history", path=str(path)))
+                continue
+            # Keep the row until deletion is durable; interrupted cleanup can retry.
+            path.unlink(missing_ok=True)
+            if path.parent.exists():
+                fsync_dir(path.parent)
+            with self.db.connection:
+                self.db.connection.execute("DELETE FROM revisions WHERE path=?", (str(path),))
+            self.events.emit("info", f"Removed history older than 30 days: {path.name}")
+
     def _recover(self) -> None:
         pending = self.db.rows("journal")
         for row in pending:
@@ -209,12 +234,25 @@ class SyncEngine:
                 f for f in folders
                 if not f.startswith(".") and not (Path(directory) / f).is_symlink()
             )
+            # A native archive and its PDF preview represent one document. Keep
+            # preferring the archive after it is sent (or its outcome is unknown).
+            native_stems = {
+                name_key(Path(name).stem)
+                for name in files
+                if not name.startswith(".")
+                and Path(name).suffix.lower() == ".rmdoc"
+                and not (Path(directory) / name).is_symlink()
+                and (Path(directory) / name).is_file()
+            }
             for name in sorted(files):
                 path = Path(directory) / name
                 relative = str(path.relative_to(self.root))
-                if name.startswith(".") or path.suffix.lower() not in (".pdf", ".epub"):
+                fmt = path.suffix.lower().lstrip(".")
+                if name.startswith(".") or fmt not in ("pdf", "epub", "rmdoc"):
                     continue
                 if path.is_symlink() or not path.is_file() or name_key(relative) in tracked:
+                    continue
+                if fmt == "pdf" and name_key(path.stem) in native_stems:
                     continue
                 previous = uploads.get(name_key(relative))
                 if previous and previous["status"] == "sent":
@@ -242,8 +280,8 @@ class SyncEngine:
                         after.st_size, after.st_mtime_ns, after.st_ino
                     ):
                         raise MirrorError("File changed while being copied; retry next sync")
-                    if path.suffix.lower() == ".pdf":
-                        validate_artifact(temp, "pdf")
+                    if fmt in ("pdf", "rmdoc"):
+                        validate_artifact(temp, fmt)
                     else:
                         with zipfile.ZipFile(temp) as archive:
                             if archive.read("mimetype") != b"application/epub+zip":
@@ -433,6 +471,8 @@ class SyncEngine:
                     )
                 upload_excluded.update(a["path"] for a in self.db.rows("artifacts"))
                 self._upload_new(upload_excluded, dry_run, result)
+                if result.errors == 0:
+                    self._prune_history(time.time(), dry_run, result)
                 if not dry_run:
                     for node in sorted(nodes, key=lambda n: len(n["path"]), reverse=True):
                         if node["folder"] and paths.get(node["id"]) != node["path"]:
